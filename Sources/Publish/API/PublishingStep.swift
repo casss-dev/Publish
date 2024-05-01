@@ -4,8 +4,8 @@
 *  MIT license, see LICENSE file for details
 */
 
-import Foundation
 import Files
+import Foundation
 import Plot
 
 /// Type used to implement a publishing pipeline step.
@@ -23,15 +23,15 @@ public struct PublishingStep<Site: Website> {
 
 // MARK: - Core
 
-public extension PublishingStep {
+extension PublishingStep {
     /// An empty step that does nothing. Can be used as a conditional fallback.
-    static var empty: Self {
+    public static var empty: Self {
         PublishingStep(kind: .system, body: .empty)
     }
 
     /// Group an array of steps into one.
     /// - parameter steps: The steps to use to form a group.
-    static func group(_ steps: [Self]) -> Self {
+    public static func group(_ steps: [Self]) -> Self {
         PublishingStep(kind: .system, body: .group(steps))
     }
 
@@ -39,7 +39,7 @@ public extension PublishingStep {
     /// - parameter condition: The condition that determines whether the
     ///   step should be run or not.
     /// - parameter step: The step to run if the condition is `true`.
-    static func `if`(_ condition: Bool, _ step: Self) -> Self {
+    public static func `if`(_ condition: Bool, _ step: Self) -> Self {
         condition ? step : .empty
     }
 
@@ -47,28 +47,27 @@ public extension PublishingStep {
     /// - parameter optional: The optional to unwrap.
     /// - parameter transform: A closure that transforms any unwrapped
     ///   value into a `PublishingStep` instance.
-    static func unwrap<T>(_ optional: T?, _ transform: (T) -> Self) -> Self {
+    public static func unwrap<T>(_ optional: T?, _ transform: (T) -> Self) -> Self {
         optional.map(transform) ?? .empty
     }
 
     /// Convert a step into an optional one, making it silently fail in
     /// case it encountered an error.
     /// - parameter step: The step to turn into an optional one.
-    static func optional(_ step: Self) -> Self {
+    public static func optional(_ step: Self) -> Self {
         switch step.body {
         case .empty, .group:
             return step
         case .operation(let name, let closure):
             return .step(named: name, kind: step.kind) { context in
-                do { try await closure(&context) }
-                catch {}
+                do { try await closure(&context) } catch {}
             }
         }
     }
 
     /// Install a plugin into this publishing process.
     /// - parameter plugin: The plugin to install.
-    static func installPlugin(_ plugin: Plugin<Site>) -> Self {
+    public static func installPlugin(_ plugin: Plugin<Site>) -> Self {
         step(
             named: "Install plugin '\(plugin.name)'",
             kind: .generation,
@@ -80,17 +79,17 @@ public extension PublishingStep {
     /// - parameter name: A human-readable name for the step.
     /// - parameter body: The step's closure body, which is used to
     ///   to mutate the current `PublishingContext`.
-    static func step(named name: String, body: @escaping Closure) -> Self {
+    public static func step(named name: String, body: @escaping Closure) -> Self {
         step(named: name, kind: .generation, body: body)
     }
 }
 
 // MARK: - Content
 
-public extension PublishingStep {
+extension PublishingStep {
     /// Add an item to website programmatically.
     /// - parameter item: The item to add.
-    static func addItem(_ item: Item<Site>) -> Self {
+    public static func addItem(_ item: Item<Site>) -> Self {
         step(named: "Add item '\(item.path)'") { context in
             context.addItem(item)
         }
@@ -98,7 +97,7 @@ public extension PublishingStep {
 
     /// Add a sequence of items to website programmatically.
     /// - parameter sequence: The items to add.
-    static func addItems<S: Sequence>(
+    public static func addItems<S: Sequence>(
         in sequence: S
     ) -> Self where S.Element == Item<Site> {
         step(named: "Add items in sequence") { context in
@@ -108,7 +107,7 @@ public extension PublishingStep {
 
     /// Add a page to website programmatically.
     /// - parameter page: The page to add.
-    static func addPage(_ page: Page) -> Self {
+    public static func addPage(_ page: Page) -> Self {
         step(named: "Add page '\(page.path)'") { context in
             context.addPage(page)
         }
@@ -116,7 +115,7 @@ public extension PublishingStep {
 
     /// Add a sequence of pages to website programmatically.
     /// - parameter sequence: The pages to add.
-    static func addPages<S: Sequence>(
+    public static func addPages<S: Sequence>(
         in sequence: S
     ) -> Self where S.Element == Page {
         step(named: "Add pages in sequence") { context in
@@ -128,17 +127,21 @@ public extension PublishingStep {
     /// the website. The root folders will be parsed as sections, and the
     /// files within them as items, while root files will be parsed as pages.
     /// - parameter path: The path of the Markdown folder to add (default: `Content`).
-    static func addMarkdownFiles(at path: Path = "Content") -> Self {
+    /// - parameter onMadeContent: A callback, called when the parser parses a markdown file (default: `nil`)
+    public static func addMarkdownFiles(
+        at path: Path = "Content", onMadeContent: (() -> Void)? = nil
+    ) -> Self {
         step(named: "Add Markdown files from '\(path)' folder") { context in
             let folder = try context.folder(at: path)
-            try await MarkdownFileHandler().addMarkdownFiles(in: folder, to: &context)
+            try await MarkdownFileHandler().addMarkdownFiles(
+                in: folder, to: &context, onMadeContent: onMadeContent)
         }
     }
-    
+
     /// Remove all items matching a predicate, optionally within a specific section.
     /// - parameter section: Any specific section to remove all items within.
     /// - parameter predicate: Any predicate to filter the items using.
-    static func removeAllItems(
+    public static func removeAllItems(
         in section: Site.SectionID? = nil,
         matching predicate: Predicate<Item<Site>> = .any
     ) -> Self {
@@ -159,7 +162,7 @@ public extension PublishingStep {
     /// - parameter section: Any specific section to mutate all items within.
     /// - parameter predicate: Any predicate to filter the items using.
     /// - parameter mutations: The mutations to apply to each item.
-    static func mutateAllItems(
+    public static func mutateAllItems(
         in section: Site.SectionID? = nil,
         matching predicate: Predicate<Item<Site>> = .any,
         using mutations: @escaping Mutations<Item<Site>>
@@ -175,21 +178,22 @@ public extension PublishingStep {
     /// - parameter sections: The sections to mutate all items within.
     /// - parameter predicate: Any predicate to filter the items using.
     /// - parameter mutations: The mutations to apply to each item.
-    static func mutateAllItems(
+    public static func mutateAllItems(
         in sections: Set<Site.SectionID>,
         matching predicate: Predicate<Item<Site>> = .any,
         using mutations: @escaping Mutations<Item<Site>>
     ) -> Self {
         var stepName = "Mutate all items"
-        
+
         if sections.count != Site.SectionID.allCases.count {
-            let sectionDescription = sections
+            let sectionDescription =
+                sections
                 .map(\.rawValue)
                 .joined(separator: ", ")
-            
+
             stepName.append(" in \(sectionDescription)")
         }
-        
+
         return step(named: stepName) { context in
             for section in sections {
                 try await context.sections[section].replaceItems(
@@ -218,7 +222,7 @@ public extension PublishingStep {
     /// - parameter path: The relative path of the item to mutate.
     /// - parameter section: The section that the item belongs to.
     /// - parameter mutations: The mutations to apply to the item.
-    static func mutateItem(
+    public static func mutateItem(
         at path: Path,
         in section: Site.SectionID,
         using mutations: @escaping Mutations<Item<Site>>
@@ -231,7 +235,7 @@ public extension PublishingStep {
     /// Mutate a page at a given path.
     /// - parameter path: The path of the page to mutate.
     /// - parameter mutations: The mutations to apply to the page.
-    static func mutatePage(
+    public static func mutatePage(
         at path: Path,
         using mutations: @escaping Mutations<Page>
     ) -> Self {
@@ -243,7 +247,7 @@ public extension PublishingStep {
     /// Mutate all pages, optionally matching a given predicate.
     /// - parameter predicate: Any predicate to filter the items using.
     /// - parameter mutations: The mutations to apply to the page.
-    static func mutateAllPages(
+    public static func mutateAllPages(
         matching predicate: Predicate<Page> = .any,
         using mutations: @escaping Mutations<Page>
     ) -> Self {
@@ -262,7 +266,7 @@ public extension PublishingStep {
     /// - parameter section: Any specific section to sort all items within.
     /// - parameter keyPath: The key path to use when sorting.
     /// - parameter order: The order to use when sorting.
-    static func sortItems<T: Comparable>(
+    public static func sortItems<T: Comparable>(
         in section: Site.SectionID? = nil,
         by keyPath: KeyPath<Item<Site>, T>,
         order: SortOrder = .ascending
@@ -285,29 +289,32 @@ public extension PublishingStep {
 
 // MARK: - Files and folders
 
-public extension PublishingStep {
+extension PublishingStep {
     /// Copy the website's main resources into its output folder
     /// - parameter originPath: The path that the resource folder is located at.
     /// - parameter targetFolderPath: Any specific path to copy the resources to.
     ///   If `nil`, then the resources will be copied to the output folder itself.
     /// - parameter includeFolder: Whether the resource folder itself, or just its
     ///   contents, should be copied. Default: `false`.
-    static func copyResources(
+    public static func copyResources(
         at originPath: Path = "Resources",
         to targetFolderPath: Path? = nil,
         includingFolder includeFolder: Bool = false
     ) -> Self {
-        copyFiles(at: originPath,
-                  to: targetFolderPath,
-                  includingFolder: includeFolder)
+        copyFiles(
+            at: originPath,
+            to: targetFolderPath,
+            includingFolder: includeFolder)
     }
 
     /// Copy a file at a given path into the website's output folder.
     /// - parameter originPath: The path of the file to copy.
     /// - parameter targetFolderPath: Any specific folder path to copy the file to.
     ///   If `nil`, then the file will be copied to the output folder itself.
-    static func copyFile(at originPath: Path,
-                         to targetFolderPath: Path? = nil) -> Self {
+    public static func copyFile(
+        at originPath: Path,
+        to targetFolderPath: Path? = nil
+    ) -> Self {
         step(named: "Copy file '\(originPath)'") { context in
             try context.copyFileToOutput(
                 from: originPath,
@@ -322,7 +329,7 @@ public extension PublishingStep {
     ///   If `nil`, then the folder will be copied to the output folder itself.
     /// - parameter includeFolder: Whether the origin folder itself, or just its
     ///   contents, should be copied. Default: `false`.
-    static func copyFiles(
+    public static func copyFiles(
         at originPath: Path,
         to targetFolderPath: Path? = nil,
         includingFolder includeFolder: Bool = false
@@ -356,12 +363,12 @@ public extension PublishingStep {
 
 // MARK: - Generation
 
-public extension PublishingStep {
+extension PublishingStep {
     /// Generate the website's HTML using a given theme.
     /// - parameter theme: The theme to use to generate the website's HTML.
     /// - parameter indentation: How each HTML file should be indented.
     /// - parameter fileMode: The mode to use when generating each HTML file.
-    static func generateHTML(
+    public static func generateHTML(
         withTheme theme: Theme<Site>,
         indentation: Indentation.Kind? = nil,
         fileMode: HTMLFileMode = .foldersAndIndexFiles
@@ -386,7 +393,7 @@ public extension PublishingStep {
     /// - parameter config: The configuration to use when generating the feed.
     /// - parameter date: The date that should act as the build and publishing
     ///   date for the generated feed (default: the current date).
-    static func generateRSSFeed(
+    public static func generateRSSFeed(
         including includedSectionIDs: Set<Site.SectionID>,
         itemPredicate: Predicate<Item<Site>>? = nil,
         config: RSSFeedConfiguration = .default,
@@ -412,8 +419,10 @@ public extension PublishingStep {
     /// - parameter excludedPaths: Any paths to exclude from the site map.
     ///   Adding a section's path to the list removes the entire section, including all its items.
     /// - parameter indentation: How the site map should be indented.
-    static func generateSiteMap(excluding excludedPaths: Set<Path> = [],
-                                indentedBy indentation: Indentation.Kind? = nil) -> Self {
+    public static func generateSiteMap(
+        excluding excludedPaths: Set<Path> = [],
+        indentedBy indentation: Indentation.Kind? = nil
+    ) -> Self {
         step(named: "Generate site map") { context in
             let generator = SiteMapGenerator(
                 excludedPaths: excludedPaths,
@@ -426,7 +435,7 @@ public extension PublishingStep {
     }
 }
 
-public extension PublishingStep where Site.ItemMetadata: PodcastCompatibleWebsiteItemMetadata {
+extension PublishingStep where Site.ItemMetadata: PodcastCompatibleWebsiteItemMetadata {
     /// Generate a podcast feed for one of the website's sections.
     /// Note that all of the items within the given section must define `podcast`
     /// and `audio` metadata, or an error will be thrown.
@@ -436,7 +445,7 @@ public extension PublishingStep where Site.ItemMetadata: PodcastCompatibleWebsit
     /// - parameter config: The configuration to use when generating the feed.
     /// - parameter date: The date that should act as the build and publishing
     ///   date for the generated feed (default: the current date).
-    static func generatePodcastFeed(
+    public static func generatePodcastFeed(
         for section: Site.SectionID,
         itemPredicate: Predicate<Item<Site>>? = nil,
         config: PodcastFeedConfiguration<Site>,
@@ -458,13 +467,13 @@ public extension PublishingStep where Site.ItemMetadata: PodcastCompatibleWebsit
 
 // MARK: - Deployment
 
-public extension PublishingStep {
+extension PublishingStep {
     /// Deploy the website using a given method.
     /// This step will only run in case either the `-d` or `--deploy
     /// flag was passed on the command line, for example by using the
     /// `publish deploy` command.
     /// - parameter method: The method to use when deploying the website.
-    static func deploy(using method: DeploymentMethod<Site>) -> Self {
+    public static func deploy(using method: DeploymentMethod<Site>) -> Self {
         step(named: "Deploy using \(method.name)", kind: .deployment) { context in
             try method.body(context)
         }
@@ -473,7 +482,7 @@ public extension PublishingStep {
 
 // MARK: - Implementation details
 
-internal extension PublishingStep {
+extension PublishingStep {
     enum Kind: String {
         case system
         case generation
@@ -487,10 +496,12 @@ internal extension PublishingStep {
     }
 }
 
-private extension PublishingStep {
-    static func step(named name: String,
-                     kind: Kind,
-                     body: @escaping Closure) -> Self {
+extension PublishingStep {
+    fileprivate static func step(
+        named name: String,
+        kind: Kind,
+        body: @escaping Closure
+    ) -> Self {
         PublishingStep(
             kind: kind,
             body: .operation(name: name, closure: body)

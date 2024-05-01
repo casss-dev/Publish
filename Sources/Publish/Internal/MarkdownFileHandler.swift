@@ -4,19 +4,21 @@
 *  MIT license, see LICENSE file for details
 */
 
-import Files
 import CollectionConcurrencyKit
+import Files
 
 internal struct MarkdownFileHandler<Site: Website> {
     func addMarkdownFiles(
         in folder: Folder,
-        to context: inout PublishingContext<Site>
+        to context: inout PublishingContext<Site>,
+        onMadeContent: (() -> Void)? = nil
     ) async throws {
         let factory = context.makeMarkdownContentFactory()
 
         if let indexFile = try? folder.file(named: "index.md") {
             do {
                 context.index.content = try factory.makeContent(fromFile: indexFile)
+                onMadeContent?()
             } catch {
                 throw wrap(error, forPath: "\(folder.path)index.md")
             }
@@ -24,21 +26,25 @@ internal struct MarkdownFileHandler<Site: Website> {
 
         let folderResults: [FolderResult] = try await folder.subfolders.concurrentMap { subfolder in
             guard let sectionID = Site.SectionID(rawValue: subfolder.name.lowercased()) else {
-                return try await .pages(makePagesForMarkdownFiles(
-                    inFolder: subfolder,
-                    recursively: true,
-                    parentPath: Path(subfolder.name),
-                    factory: factory
-                ))
+                return try await .pages(
+                    makePagesForMarkdownFiles(
+                        inFolder: subfolder,
+                        recursively: true,
+                        parentPath: Path(subfolder.name),
+                        factory: factory,
+                        onMadeContent: onMadeContent
+                    ))
             }
 
             var sectionContent: Content?
-            
-            let items: [Item<Site>] = try await subfolder.files.recursive.concurrentCompactMap { file in
+
+            let items: [Item<Site>] = try await subfolder.files.recursive.concurrentCompactMap {
+                file in
                 guard file.isMarkdown else { return nil }
 
                 if file.nameExcludingExtension == "index", file.parent == subfolder {
                     sectionContent = try factory.makeContent(fromFile: file)
+                    onMadeContent?()
                     return nil
                 }
 
@@ -52,6 +58,7 @@ internal struct MarkdownFileHandler<Site: Website> {
                         path = Path(fileName)
                     }
 
+                    defer { onMadeContent?() }
                     return try factory.makeItem(
                         fromFile: file,
                         at: path,
@@ -87,7 +94,8 @@ internal struct MarkdownFileHandler<Site: Website> {
             inFolder: folder,
             recursively: false,
             parentPath: "",
-            factory: factory
+            factory: factory,
+            onMadeContent: onMadeContent
         )
 
         for page in rootPages {
@@ -96,17 +104,18 @@ internal struct MarkdownFileHandler<Site: Website> {
     }
 }
 
-private extension MarkdownFileHandler {
-    enum FolderResult {
+extension MarkdownFileHandler {
+    fileprivate enum FolderResult {
         case pages([Page])
         case section(id: Site.SectionID, content: Content?, items: [Item<Site>])
     }
 
-    func makePagesForMarkdownFiles(
+    fileprivate func makePagesForMarkdownFiles(
         inFolder folder: Folder,
         recursively: Bool,
         parentPath: Path,
-        factory: MarkdownContentFactory<Site>
+        factory: MarkdownContentFactory<Site>,
+        onMadeContent: (() -> Void)?
     ) async throws -> [Page] {
         let pages: [Page] = try await folder.files.concurrentCompactMap { file in
             guard file.isMarkdown else { return nil }
@@ -116,6 +125,7 @@ private extension MarkdownFileHandler {
             }
 
             let pagePath = parentPath.appendingComponent(file.nameExcludingExtension)
+            defer { onMadeContent?() }
             return try factory.makePage(fromFile: file, at: pagePath)
         }
 
@@ -123,25 +133,27 @@ private extension MarkdownFileHandler {
             return pages
         }
 
-        return try await pages + folder.subfolders.concurrentFlatMap { subfolder -> [Page] in
-            let parentPath = parentPath.appendingComponent(subfolder.name)
+        return try await pages
+            + folder.subfolders.concurrentFlatMap { subfolder -> [Page] in
+                let parentPath = parentPath.appendingComponent(subfolder.name)
 
-            return try await makePagesForMarkdownFiles(
-                inFolder: subfolder,
-                recursively: true,
-                parentPath: parentPath,
-                factory: factory
-            )
-        }
+                return try await makePagesForMarkdownFiles(
+                    inFolder: subfolder,
+                    recursively: true,
+                    parentPath: parentPath,
+                    factory: factory,
+                    onMadeContent: onMadeContent
+                )
+            }
     }
 
-    func wrap(_ error: Error, forPath path: Path) -> Error {
+    fileprivate func wrap(_ error: Error, forPath path: Path) -> Error {
         if error is FilesError<ReadErrorReason> {
             return FileIOError(path: path, reason: .fileCouldNotBeRead)
         } else if let error = error as? DecodingError {
             switch error {
             case .keyNotFound(_, let context),
-                 .valueNotFound(_, let context):
+                .valueNotFound(_, let context):
                 return ContentError(
                     path: path,
                     reason: .markdownMetadataDecodingFailed(
@@ -150,7 +162,7 @@ private extension MarkdownFileHandler {
                     )
                 )
             case .typeMismatch(_, let context),
-                 .dataCorrupted(let context):
+                .dataCorrupted(let context):
                 return ContentError(
                     path: path,
                     reason: .markdownMetadataDecodingFailed(
@@ -173,12 +185,12 @@ private extension MarkdownFileHandler {
     }
 }
 
-private extension File {
+extension File {
     private static let markdownFileExtensions: Set<String> = [
-        "md", "markdown", "txt", "text"
+        "md", "markdown", "txt", "text",
     ]
 
-    var isMarkdown: Bool {
+    fileprivate var isMarkdown: Bool {
         self.extension.map(File.markdownFileExtensions.contains) ?? false
     }
 }
